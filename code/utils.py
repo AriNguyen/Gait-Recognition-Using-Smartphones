@@ -1,6 +1,5 @@
 import numpy as np
 
-
 def one_hot(y_):
     """
     Function to encode output labels from number indexes.
@@ -10,3 +9,18 @@ def one_hot(y_):
     y_ = y_.reshape(len(y_))
     n_values = int(np.max(y_)) + 1
     return np.eye(n_values)[np.array(y_, dtype=np.int32)]  # Returns FLOATS
+
+
+def load_y(y_path):
+    file = open(y_path, 'r')
+
+    # Read dataset from disk, dealing with text file's syntax
+    y = np.array(
+        [elem for elem in [
+            row.replace('  ', ' ').strip().split(' ') for row in file
+        ]],
+        dtype=np.int32
+    )
+
+    file.close()
+    return y
