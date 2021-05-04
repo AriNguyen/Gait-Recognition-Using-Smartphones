@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def one_hot(y_):
     """
     Function to encode output labels from number indexes.
