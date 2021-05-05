@@ -3,15 +3,16 @@ import numpy as np
 import os
 
 from constants import DATASET_1
+from utils import one_hot, load_y
 
 
 # load数据
-def load_X(path):
+def load_preprocess_X(path):
     X_signals = []
     files = os.listdir(path)
     for my_file in files:
-        fileName = os.path.join(path, my_file)
-        file = open(fileName, 'r')
+        file_name = os.path.join(path, my_file)
+        file = open(file_name, 'r')
         X_signals.append(
             [np.array(cell, dtype=np.float32) for cell in [
                 row.strip().split(' ') for row in file
@@ -22,22 +23,15 @@ def load_X(path):
     return np.transpose(np.array(X_signals), (1, 2, 0))  # (totalStepNum*128*6)
 
 
-def load_y(y_path):
-    file = open(y_path, 'r')
-    # Read dataset from disk, dealing with text file's syntax
-    y_ = np.array(
-        [elem for elem in [
-            row.replace('  ', ' ').strip().split(' ') for row in file
-        ]],
-        dtype=np.int32
-    )
-    file.close()
-    # Substract 1 to each output class for friendly 0-based indexing
-    y_ = y_ - 1
+def load_preprocess_y(y_path):
+    y = load_y(y_path)
+
+    # Subtract 1 to each output class for friendly 0-based indexing
+    y = y - 1
+
     # one_hot
-    y_ = y_.reshape(len(y_))
-    n_values = int(np.max(y_)) + 1
-    return np.eye(n_values)[np.array(y_, dtype=np.int32)]  # Returns FLOATS
+    y = one_hot(y)
+    return y
 
 
 # ---------------------------the part of CNN---------------------------------
@@ -52,7 +46,7 @@ def bias_variable(shape):
 
 
 # ----------------------------------the part of LSTM--------------------------------
-class Config(object):
+class Config:
     """
     define a class to store parameters,
     the input should be feature mat of training and testing
@@ -186,11 +180,11 @@ if __name__ == '__main__':
     label_ = tf.compat.v1.placeholder(tf.float32, [None, 118])  # label占位
 
     # 输入
-    X_train = load_X(os.path.join(DATASET_1, 'train/', 'Inertial Signals/'))
-    X_test = load_X(os.path.join(DATASET_1, 'test/', 'Inertial Signals/'))
+    X_train = load_preprocess_X(os.path.join(DATASET_1, 'train/', 'Inertial Signals/'))
+    X_test = load_preprocess_X(os.path.join(DATASET_1, 'test/', 'Inertial Signals/'))
     # 得到label
-    train_label = load_y(os.path.join(DATASET_1, 'train/', 'y_train.txt'))
-    test_label = load_y(os.path.join(DATASET_1, 'test/', 'y_test.txt'))
+    train_label = load_preprocess_y(os.path.join(DATASET_1, 'train/', 'y_train.txt'))
+    test_label = load_preprocess_y(os.path.join(DATASET_1, 'test/', 'y_test.txt'))
 
     config = Config(X_train, X_test)
     lstm_output = LSTM_Network(config)(X)
