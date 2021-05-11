@@ -3,12 +3,23 @@ import numpy as np
 import os
 
 from constants import DATASET_1
-from utils import one_hot, load_y, load_X, bias_variable, weight_variable
+from utils import one_hot, load_y
 
 
-def load_preprocess_X(path, data_type):
-    # X_signals = 6*totalStepNum*128
-    X_signals = load_X(path, data_type)
+# load数据
+def load_preprocess_X(path):
+    X_signals = []
+    files = os.listdir(path)
+    for my_file in files:
+        file_name = os.path.join(path, my_file)
+        file = open(file_name, 'r')
+        X_signals.append(
+            [np.array(cell, dtype=np.float32) for cell in [
+                row.strip().split(' ') for row in file
+            ]]
+        )
+        file.close()
+        # X_signals = 6*totalStepNum*128
     return np.transpose(np.array(X_signals), (1, 2, 0))  # (totalStepNum*128*6)
 
 
@@ -21,6 +32,17 @@ def load_preprocess_y(y_path):
     # one_hot
     y = one_hot(y)
     return y
+
+
+# ---------------------------the part of CNN---------------------------------
+def weight_variable(shape):
+    initial = tf.random.truncated_normal(shape, stddev=0.1)  # 变量的初始值为截断正太分布
+    return tf.Variable(initial)
+
+
+def bias_variable(shape):
+    initial = tf.constant(0.1, shape=shape)
+    return tf.Variable(initial)
 
 
 # ----------------------------------the part of LSTM--------------------------------
@@ -153,57 +175,49 @@ def last_full_connection_layer(lstm_output, cnn_output):
 
 
 if __name__ == '__main__':
-    # Training parameters
-    batch_size = 512
-    epochs = 100
-    best_accuracy = 0
-
     tf.compat.v1.disable_eager_execution()
     X = tf.compat.v1.placeholder(tf.float32, [None, 128, 6])  # 输入占位
-    label = tf.compat.v1.placeholder(tf.float32, [None, 118])  # label占位
+    label_ = tf.compat.v1.placeholder(tf.float32, [None, 118])  # label占位
 
     # 输入
-    X_train = load_preprocess_X(os.path.join(DATASET_1, 'train', 'Inertial Signals'), data_type='train')
-    X_test = load_preprocess_X(os.path.join(DATASET_1, 'test', 'Inertial Signals'), data_type='test')
-
+    X_train = load_preprocess_X(os.path.join(DATASET_1, 'train/', 'Inertial Signals/'))
+    X_test = load_preprocess_X(os.path.join(DATASET_1, 'test/', 'Inertial Signals/'))
     # 得到label
-    train_label = load_preprocess_y(os.path.join(DATASET_1, 'train', 'y_train.txt'))
-    test_label = load_preprocess_y(os.path.join(DATASET_1, 'test', 'y_test.txt'))
+    train_label = load_preprocess_y(os.path.join(DATASET_1, 'train/', 'y_train.txt'))
+    test_label = load_preprocess_y(os.path.join(DATASET_1, 'test/', 'y_test.txt'))
 
-    # (X_train, X_test), (train_label, test_label) = load_identification_data(
-
-    # Initialize
     config = Config(X_train, X_test)
     lstm_output = LSTM_Network(config)(X)
     cnn_output = CNN_Network()(X)
     pred_Y = last_full_connection_layer(lstm_output, cnn_output)
 
-    cross_entropy = tf.math.reduce_mean(-tf.math.reduce_sum(label * tf.math.log(pred_Y + 1e-10), axis=[1]))  # 损失函数，交叉熵
+    cross_entropy = tf.math.reduce_mean(-tf.math.reduce_sum(label_ * tf.math.log(pred_Y + 1e-10), axis=[1]))  # 损失函数，交叉熵
     train_step = tf.compat.v1.train.AdamOptimizer(1e-3).minimize(cross_entropy)  # 使用adam优化
-    correct_prediction = tf.math.equal(tf.argmax(pred_Y, 1), tf.argmax(label, 1))  # 计算准确度
+    correct_prediction = tf.math.equal(tf.argmax(pred_Y, 1), tf.argmax(label_, 1))  # 计算准确度
     accuracy = tf.math.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
     sess = tf.compat.v1.InteractiveSession()
     sess.run(tf.compat.v1.global_variables_initializer())  # 变量初始化
 
-    for i in range(epochs):
+    best_accuracy = 0
+    for i in range(100):
+        batch_size = 512
         for start, end in zip(range(0, len(train_label), batch_size),
                               range(batch_size, len(train_label) + 1, batch_size)):
             sess.run(train_step, feed_dict={
                 X: X_train[start:end],
-                label: train_label[start:end]
+                label_: train_label[start:end]
             })
-
-        # Test completely at every epoch: calculate accuracy
+            # Test completely at every epoch: calculate accuracy
         accuracy_out, loss_out = sess.run(
             [accuracy, cross_entropy],
             feed_dict={
                 X: X_test,
-                label: test_label
+                label_: test_label
             }
         )
         if accuracy_out > best_accuracy:
             best_accuracy = accuracy_out
-
         print(str(i) + 'th cross_entropy:', str(loss_out), 'accuracy:', str(accuracy_out))
+
     print("best accuracy:" + str(best_accuracy))
