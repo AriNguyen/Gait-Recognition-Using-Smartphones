@@ -1,17 +1,26 @@
-import tensorflow as tf
-from tensorflow.keras import layers
-import numpy as np
 import os
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+import matplotlib.pyplot as plt
 
-from utils import load_identification_data, bias_variable, weight_variable
+from utils import load_identification_data
+
+dataset_number = 1
 
 # Training parameters
 batch_size = 512
 epochs = 100
 best_accuracy = 0
-feature_shape = 20
+feature_shape = 118
 
-dataset_number = 2
+
+class Callback(keras.callbacks.Callback):
+    def on_epoch_end(self, epochs, logs={}):
+        if logs.get('loss') < 0.01:
+            print("\nReached 99% accuracy so cancelling training!")
+            self.model.stop_training = True
 
 
 class Config:
@@ -74,13 +83,14 @@ class LSTM_Network(tf.keras.Model):
       return:
               : matrix  output shape [batch_size,n_classes]
     """
+
     def __init__(self, config):
         super().__init__()
         self.config = config
 
         # Define two stacked LSTM cells (two recurrent layers deep) with tensorflow
-        self.lstm_cell_1 = layers.LSTMCell(self.config.n_hidden)
-        self.lstm_cell_2 = layers.LSTMCell(self.config.n_hidden)
+        self.lstm_cell_1 = layers.LSTMCell(self.config.n_hidden, dropout=0.5)
+        self.lstm_cell_2 = layers.LSTMCell(self.config.n_hidden, dropout=0.5)
         self.stacked_lstm = layers.StackedRNNCells([self.lstm_cell_1, self.lstm_cell_2] * self.config.n_layers)
 
     def __call__(self, x):
@@ -126,60 +136,77 @@ class CNN_Network(tf.keras.Model):
         ])
 
     def __call__(self, x):
-        x = tf.reshape(X, [-1, 128, 6, 1])
+        x = tf.reshape(x, [-1, 128, 6, 1])
         x = self.model(x)
         return x
 
 
 def last_full_connection_layer(lstm_output, cnn_output):
-    eigen_input = tf.concat([lstm_output, cnn_output], 1)
-    # 第四层，输入64维，输出118维，也就是具体的分类
-    W_fc2 = weight_variable([128, feature_shape])
-    b_fc2 = bias_variable([feature_shape])
-    # y_conv = tf.nn.softmax(tf.matmul(h_fc1, W_fc2) + b_fc2)  # 使用softmax作为多分类激活函数
-    return tf.nn.softmax(tf.matmul(eigen_input, W_fc2) + b_fc2)  # 使用softmax作为多分类激活函数
+    x = layers.concatenate([lstm_output, cnn_output], 1)
+    y = layers.Dense(feature_shape, activation='softmax')(x)
+    return y
+
+
+def experiment():
+    pass
 
 
 if __name__ == '__main__':
-    tf.compat.v1.disable_eager_execution()
-    X = tf.compat.v1.placeholder(tf.float32, [None, 128, 6])  # 输入占位
-    label = tf.compat.v1.placeholder(tf.float32, [None, feature_shape])  # label占位
+    # tf.compat.v1.disable_eager_execution()
+    X = tf.keras.Input(shape=[128, 6], dtype='float32')
+    label = tf.keras.Input(shape=[feature_shape], dtype='float32')
 
     # Load dataset
-    (X_train, X_test), (train_label, test_label) = load_identification_data(dataset_number=dataset_number)
+    (X_train, X_test), (y_train, y_test) = load_identification_data(dataset_number=dataset_number)
+
+    # Reserve 10,000 samples for validation
+    x_val = X_train[-10000:]
+    y_val = y_train[-10000:]
+    x_train = X_train[:-10000]
+    y_train = y_train[:-10000]
 
     # Initialize
-    config = Config(X_train, X_test)
-    lstm_output = LSTM_Network(config)(X_train)
-    cnn_output = CNN_Network()(X_train)
+    config = Config(x_val, X_test)
+    lstm_output = LSTM_Network(config)(X)
+    cnn_output = CNN_Network()(X)
     pred_Y = last_full_connection_layer(lstm_output, cnn_output)
 
-    cross_entropy = tf.math.reduce_mean(-tf.math.reduce_sum(label * tf.math.log(pred_Y + 1e-10), axis=[1]))  # 损失函数，交叉熵
-    train_step = tf.compat.v1.train.AdamOptimizer(1e-3).minimize(cross_entropy)  # 使用adam优化
-    correct_prediction = tf.math.equal(tf.argmax(pred_Y, 1), tf.argmax(label, 1))  # 计算准确度
-    accuracy = tf.math.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    checkpoint_path = "./checkpoints/train"
+    earlyStopping = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=10)
 
-    sess = tf.compat.v1.InteractiveSession()
-    sess.run(tf.compat.v1.global_variables_initializer())  # 变量初始化
+    model = tf.keras.models.Model(inputs=X, outputs=pred_Y)
+    model.compile(optimizer='adam',
+                  loss=tf.keras.losses.CategoricalCrossentropy(),
+                  metrics='accuracy')
 
-    for i in range(epochs):
-        for start, end in zip(range(0, len(train_label), batch_size),
-                              range(batch_size, len(train_label) + 1, batch_size)):
-            sess.run(train_step, feed_dict={
-                X: X_train[start:end],
-                label: train_label[start:end]
-            })
+    history = model.fit(x_train, y_train,
+                        validation_data=(x_val, y_val),
+                        batch_size=batch_size,
+                        epochs=epochs,
+                        callbacks=[Callback(), earlyStopping])
 
-        # Test completely at every epoch: calculate accuracy
-        accuracy_out, loss_out = sess.run(
-            [accuracy, cross_entropy],
-            feed_dict={
-                X: X_test,
-                label: test_label
-            }
-        )
-        if accuracy_out > best_accuracy:
-            best_accuracy = accuracy_out
+    # -----------------------------------------------------------
+    # Retrieve a list of list results on training and test data
+    # sets for each training epoch
+    # -----------------------------------------------------------
+    acc = history.history['accuracy']
+    val_acc = history.history['val_accuracy']
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
 
-        print(str(i) + 'th cross_entropy:', str(loss_out), 'accuracy:', str(accuracy_out))
-    print("best accuracy:" + str(best_accuracy))
+    epochs = range(len(acc))  # Get number of epochs
+
+    # ------------------------------------------------
+    # Plot training and validation accuracy per epoch
+    # ------------------------------------------------
+    plt.plot(epochs, acc)
+    plt.plot(epochs, val_acc)
+    plt.title('Training and validation accuracy')
+    plt.figure()
+
+    # ------------------------------------------------
+    # Plot training and validation loss per epoch
+    # ------------------------------------------------
+    plt.plot(epochs, loss)
+    plt.plot(epochs, val_loss)
+    plt.title('Training and validation loss')
