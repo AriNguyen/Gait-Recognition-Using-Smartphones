@@ -1,6 +1,9 @@
 import os
 import numpy as np
 import tensorflow as tf
+from tensorflow import keras
+
+from constants import DATA_FOLDER_PATH
 
 
 def weight_variable(shape):
@@ -24,7 +27,7 @@ def one_hot(y):
     return np.eye(n_values)[np.array(y, dtype=np.int32)]  # Returns FLOATS
 
 
-def load_X(path: object, data_type: object) -> object:
+def load_X_from_file(path, data_type):
     X_signals = []
     signal_types = ['acc_x', 'acc_y', 'acc_z', 'gyr_x', 'gyr_y', 'gyr_z']
     for signal_type in signal_types:
@@ -36,13 +39,12 @@ def load_X(path: object, data_type: object) -> object:
             ]]
         )
         file.close()
-        # X_signals = 6*totalStepNum*128
+    # X_signals = 6*totalStepNum*128
     return X_signals
 
 
-def load_y(y_path):
+def load_y_from_file(y_path):
     file = open(y_path, 'r')
-
     # Read dataset from disk, dealing with text file's syntax
     y = np.array(
         [elem for elem in [
@@ -50,23 +52,37 @@ def load_y(y_path):
         ]],
         dtype=np.int32
     )
-
     file.close()
     return y
 
 
 def load_preprocess_X(path, data_type):
     # X_signals = 6*totalStepNum*128
-    X_signals = load_X(path, data_type)
+    X_signals = load_X_from_file(path, data_type)
     return np.transpose(np.array(X_signals), (1, 2, 0))  # (totalStepNum*128*6)
 
 
 def load_preprocess_y(y_path):
-    y = load_y(y_path)
-
-    # Subtract 1 to each output class for friendly 0-based indexing
-    y = y - 1
-
-    # one_hot
+    y = load_y_from_file(y_path)
+    y = y - 1  # Subtract 1 to each output class for friendly 0-based indexing
     y = one_hot(y)
     return y
+
+
+def load_identification_data(dataset_number):
+    """ data for identification is dataset 1-4
+    """
+    dataset_name = os.path.join(DATA_FOLDER_PATH, 'Dataset #' + str(dataset_number))
+
+    X_train = load_preprocess_X(os.path.join(dataset_name, 'train', 'Inertial Signals'), data_type='train')
+    X_test = load_preprocess_X(os.path.join(dataset_name, 'test', 'Inertial Signals'), data_type='test')
+
+    train_label = load_preprocess_y(os.path.join(dataset_name, 'train', 'y_train.txt'))
+    test_label = load_preprocess_y(os.path.join(dataset_name, 'test', 'y_test.txt'))
+
+    return (X_train, X_test), (train_label, test_label)
+
+
+def get_dataset_path(dataset_number):
+    dataset_name = os.path.join(DATA_FOLDER_PATH, 'Dataset #' + str(dataset_number))
+    return dataset_name
