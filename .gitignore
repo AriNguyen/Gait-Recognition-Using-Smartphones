@@ -1,5 +1,10 @@
 .DS_Store
+result*
+
 
 # Folders
 .idea/
 data/
+plot/
+saved_model/
+__pycache__/
