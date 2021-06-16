@@ -2,6 +2,8 @@ import os
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
+import matplotlib.pyplot as plt
+
 
 from constants import DATA_FOLDER_PATH
 
@@ -69,16 +71,21 @@ def load_preprocess_y(y_path):
     return y
 
 
-def load_identification_data(dataset_number):
-    """ data for identification is dataset 1-4
-    """
-    dataset_name = os.path.join(DATA_FOLDER_PATH, 'Dataset #' + str(dataset_number))
+def load_identification_data(dataset_number, preprocess_x_func, preprocess_y_func):
+    """ data for identification is dataset 1-4 """
+    dataset_name = get_dataset_path(dataset_number)
 
-    X_train = load_preprocess_X(os.path.join(dataset_name, 'train', 'Inertial Signals'), data_type='train')
-    X_test = load_preprocess_X(os.path.join(dataset_name, 'test', 'Inertial Signals'), data_type='test')
+    X_train = load_X_from_file(os.path.join(dataset_name, 'train', 'Inertial Signals'), data_type='train')
+    X_test = load_X_from_file(os.path.join(dataset_name, 'test', 'Inertial Signals'), data_type='test')
 
-    train_label = load_preprocess_y(os.path.join(dataset_name, 'train', 'y_train.txt'))
-    test_label = load_preprocess_y(os.path.join(dataset_name, 'test', 'y_test.txt'))
+    train_label = load_y_from_file(os.path.join(dataset_name, 'train', 'y_train.txt'))
+    test_label = load_y_from_file(os.path.join(dataset_name, 'test', 'y_test.txt'))
+
+    X_train = preprocess_x_func(X_train)
+    X_test = preprocess_x_func(X_test)
+
+    train_label = preprocess_y_func(train_label)
+    test_label = preprocess_y_func(test_label)
 
     return (X_train, X_test), (train_label, test_label)
 
@@ -86,3 +93,42 @@ def load_identification_data(dataset_number):
 def get_dataset_path(dataset_number):
     dataset_name = os.path.join(DATA_FOLDER_PATH, 'Dataset #' + str(dataset_number))
     return dataset_name
+
+
+def plot_model_result(model_history, model_result, dataset_number, config, saving_path=None):
+    # Retrieve a list of list results on training and test data
+    # sets for each training epoch
+    acc = model_history.history['acc']
+    val_acc = model_history.history['val_acc']
+    loss = model_history.history['loss']
+    val_loss = model_history.history['val_loss']
+    MAX_EPOCHS = range(len(acc))  # Get number of epochs
+
+    # Plot training and validation accuracy per epoch
+    plot_name = f'dataset#{str(dataset_number)}_ACC_testacc{round(model_result[1], 4)}' + \
+                f'_dropout{round(config.dropout, 2)}_batch{config.batch_size}' + \
+                f'_epochs{config.training_epochs}_lr{config.learning_rate}' + \
+                f'.jpg'
+    plt.plot(MAX_EPOCHS, acc, label='Training Accuracy')
+    plt.plot(MAX_EPOCHS, val_acc, label='Validation Accuracy')
+    plt.title('Training and validation accuracy')
+    plt.yticks(np.arange(0, 1.1, 0.1))
+    plt.xlabel("Epoch Number")
+    plt.ylabel("Accuracy")
+    plt.legend()
+    plt.savefig(os.path.join(saving_path, plot_name))
+    plt.show()
+
+    # Plot training and validation loss per epoch
+    plot_name = f'dataset#{str(dataset_number)}_LOSS_testacc{round(model_result[1], 4)}' + \
+                f'_dropout{round(config.dropout, 2)}_batch{config.batch_size}' + \
+                f'_epochs{config.training_epochs}_lr{config.learning_rate}' + \
+                f'.jpg'
+    plt.plot(MAX_EPOCHS, loss, label='Training Loss')
+    plt.plot(MAX_EPOCHS, val_loss, label='Validation Loss')
+    plt.title('Training and validation loss')
+    plt.xlabel("Epoch Number")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(os.path.join(saving_path, plot_name))
+    plt.show()
