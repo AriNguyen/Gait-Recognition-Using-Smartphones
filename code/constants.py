@@ -2,7 +2,6 @@ import os
 
 PROJECT_PATH = '/Users/aringuyen/Projects/Gait-Recognition-Using-Smartphones'
 DATA_FOLDER_PATH = os.path.join(PROJECT_PATH, 'data')
-PLOT_SAVE_PATH = os.path.join(PROJECT_PATH, 'plot')
 
 DATASET_1 = os.path.join(DATA_FOLDER_PATH, 'Dataset #1/')
 DATASET_2 = os.path.join(DATA_FOLDER_PATH, 'Dataset #2/')
