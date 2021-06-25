@@ -3,14 +3,16 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-import matplotlib.pyplot as plt
 
-from utils import load_identification_data
-from constants import PROJECT_PATH, PLOT_SAVE_PATH
+import utils
+from constants import PROJECT_PATH
+from identification.CNN import CNNBatchNormLarge, CNN_BatchNorm, CNN
+from identification.LSTMs import LSTMBatchNorm
 
 # Training parameters
-DATASET_NUMBER = 1
+DATASET_NUMBER = 2
 CHECKPOINT_PATH = os.path.join(PROJECT_PATH, 'code', "checkpoints/train")
+PLOT_SAVE_PATH = os.path.join(PROJECT_PATH, 'plot', 'cnn_batchnorm_large')
 
 
 class Callback(keras.callbacks.Callback):
@@ -24,10 +26,20 @@ class Callback(keras.callbacks.Callback):
             self.model.stop_training = True
 
 
+def load_preprocess_X(X_signals):
+    return np.transpose(np.array(X_signals), (1, 2, 0))  # (totalStepNum*128*6)
+
+
+def load_preprocess_y(y):
+    y = y - 1  # Subtract 1 to each output class for friendly 0-based indexing
+    y = utils.one_hot(y)
+    return y
+
+
 def get_callbacks():
     return [
-        Callback(monitor='acc', baseline=0.999),
-        tf.keras.callbacks.EarlyStopping(monitor='val_loss', mode='min', min_delta=0.001, verbose=1, patience=20),
+        Callback(monitor='val_acc', baseline=0.999),
+        keras.callbacks.EarlyStopping(monitor='val_loss', mode='min', min_delta=0.001, verbose=1, patience=20, restore_best_weights=True),
     ]
 
 
@@ -41,14 +53,14 @@ class Config:
 
     def __init__(self, X_train, X_test):
         # Input data
-        self.n_layers = 2  # nb of layers
+        self.n_layers = 1  # nb of layers
         self.train_count = len(X_train)  # 7352 training series
         self.test_data_count = len(X_test)  # 2947 testing series
         self.n_steps = len(X_train[0])  # 128 time_steps per series
 
         # Training
         self.learning_rate = 0.0025
-        self.lambda_loss_amount = 0.0015
+        self.lambda_loss_amount = 0.0025
         self.training_epochs = 300
         self.batch_size = 1500
 
@@ -67,7 +79,7 @@ class Config:
         }
 
 
-class LSTM_Network(tf.keras.Model):
+class TwoStackedLSTMCells(keras.Model):
     """Function returns a TensorFlow RNN with two stacked LSTM cells
 
     Two LSTM cells are stacked which adds deepness to the neural network.
@@ -129,12 +141,12 @@ class LSTM_Network(tf.keras.Model):
         return lstm_last_output
 
 
-class CNN_Network(tf.keras.Model):
+class CNN_Identification(keras.Model):
     def __init__(self):
         super().__init__()
 
         # shape after fc: (None, 64)
-        self.model = tf.keras.Sequential([
+        self.model = keras.Sequential([
             layers.Conv2D(32, (3, 3), strides=(1, 1), padding='SAME', activation='elu', input_shape=(128, 6, 1)),
             layers.MaxPool2D((2, 2), strides=(2, 2), padding='SAME'),
             layers.Conv2D(64, (3, 3), strides=(1, 1), padding='SAME', activation='elu'),
@@ -159,7 +171,7 @@ def last_full_connection_layer(config, lstm_output, cnn_output):
 #     pass
 #
 #
-# lr_schedule = tf.keras.optimizers.schedules.InverseTimeDecay(
+# lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
 #     0.001,
 #     decay_steps=STEPS_PER_EPOCH*1000,
 #     decay_rate=1,
@@ -167,7 +179,7 @@ def last_full_connection_layer(config, lstm_output, cnn_output):
 #
 #
 # def get_optimizer():
-#   return tf.keras.optimizers.Adam(lr_schedule)
+#   return keras.optimizers.Adam(lr_schedule)
 
 
 # def compile_and_fit(model, name, optimizer=None, max_epochs=10000):
@@ -175,9 +187,9 @@ def last_full_connection_layer(config, lstm_output, cnn_output):
 #         optimizer = get_optimizer()
 #
 #     model.compile(optimizer=optimizer,
-#                   loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+#                   loss=keras.losses.BinaryCrossentropy(from_logits=True),
 #                   metrics=[
-#                       tf.keras.losses.BinaryCrossentropy(
+#                       keras.losses.BinaryCrossentropy(
 #                           from_logits=True, name='binary_crossentropy'),
 #                       'accuracy'])
 #
@@ -193,67 +205,38 @@ def last_full_connection_layer(config, lstm_output, cnn_output):
 #     return history
 
 
-def plot_model_result(model_history, model_result, config, saving_path=None):
-    # Retrieve a list of list results on training and test data
-    # sets for each training epoch
-    acc = model_history.history['acc']
-    val_acc = model_history.history['val_acc']
-    loss = model_history.history['loss']
-    val_loss = model_history.history['val_loss']
-    MAX_EPOCHS = range(len(acc))  # Get number of epochs
-
-    # Plot training and validation accuracy per epoch
-    plot_name = f'dataset#{str(DATASET_NUMBER)}_ACC_dropout{round(config.dropout, 2)}_batch{config.batch_size}' + \
-                f'_epochs{config.training_epochs}_lr{config.learning_rate}_testacc{round(model_result[1])}.jpg'
-    plt.plot(MAX_EPOCHS, acc, label='Training Accuracy')
-    plt.plot(MAX_EPOCHS, val_acc, label='Validation Accuracy')
-    plt.title('Training and validation accuracy')
-    plt.yticks(np.arange(0, 1.1, 0.1))
-    plt.xlabel("Epoch Number")
-    plt.ylabel("Accuracy")
-    plt.legend()
-    plt.savefig(os.path.join(PLOT_SAVE_PATH, plot_name))
-    plt.show()
-
-    # Plot training and validation loss per epoch
-    plot_name = f'dataset#{str(DATASET_NUMBER)}_LOSS_dropout{round(config.dropout, 2)}_batch{config.batch_size}' + \
-                f'_epochs{config.training_epochs}_lr{config.learning_rate}_testacc{round(model_result[1])}.jpg'
-    plt.plot(MAX_EPOCHS, loss, label='Training Loss')
-    plt.plot(MAX_EPOCHS, val_loss, label='Validation Loss')
-    plt.title('Training and validation loss')
-    plt.xlabel("Epoch Number")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.savefig(os.path.join(PLOT_SAVE_PATH, plot_name))
-    plt.show()
-
-
 if __name__ == '__main__':
-    X = tf.keras.Input(shape=[128, 6], dtype='float32')
+    X = keras.Input(shape=[128, 6], dtype='float32')
 
-    (X_train, X_test), (y_train, y_test) = load_identification_data(dataset_number=DATASET_NUMBER)
+    (X_train, X_test), (y_train, y_test) = utils.load_identification_data(dataset_number=DATASET_NUMBER,
+                                                                          preprocess_x_func=load_preprocess_X,
+                                                                          preprocess_y_func=load_preprocess_y)
+    split_len = int(X_train.shape[0] * 0.3)
+    X_val, y_val = X_train[-split_len:], y_train[-split_len:]
+    X_train, y_train = X_train[:split_len], y_train[:split_len]
 
     config = Config(X_train, X_test)
-    lstm_output = LSTM_Network(config)(X)
-    cnn_output = CNN_Network()(X)
+    lstm_output = TwoStackedLSTMCells(config)(X)
+    cnn_output = CNN_Identification()(X)
     pred_Y = last_full_connection_layer(config, lstm_output, cnn_output)
 
     opt = keras.optimizers.Adam(learning_rate=config.learning_rate)
-    model = tf.keras.models.Model(inputs=X, outputs=pred_Y)
+    model = keras.models.Model(inputs=X, outputs=pred_Y)
+    print(model.summary())
     # model.save('../checkpoints/CNN_LSTM_weight.h5')
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
                   metrics='acc')
 
     history = model.fit(X_train, y_train,
-                        validation_split=0.3,
+                        validation_data=(X_val, y_val),
                         batch_size=config.batch_size,
                         epochs=config.training_epochs,
-                        callbacks=get_callbacks(),
-                        shuffle=True)
+                        callbacks=get_callbacks()
+                        )
 
     print("Evaluate on test data: ...")
     results = model.evaluate(X_test, y_test, batch_size=128)
     print("test loss, test acc:", results)
 
-    plot_model_result(history, results, config, saving_path=PLOT_SAVE_PATH)
+    utils.plot_model_result(history, results, DATASET_NUMBER, config, saving_path=PLOT_SAVE_PATH)
