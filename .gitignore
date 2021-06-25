@@ -8,3 +8,4 @@ data/
 plot/
 saved_model/
 __pycache__/
+.ipynb_checkpoints/
